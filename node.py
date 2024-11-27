@@ -73,8 +73,14 @@ class Node:
             else:
                 print("Failed to update tracker:", response_data["message"])
 
+    def run(self):
+        while True:
+            print(f"Welcome node {self.node_id}")
+            command = input("Enter command: ")
+
 
 if __name__ == "__main__":
     # Example usage
     node = Node("127.0.0.1", 2901)
     node.register_with_tracker()
+    node.run()
