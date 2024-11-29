@@ -1,7 +1,1 @@
-{
-  "file_name": "test.cpp",
-  "file_hash": "1ac1db5d8bf4ead1dc42204ec0009e1fdfd10291",
-  "magnet_link": "magnet:?xt=urn:btih:1ac1db5d8bf4ead1dc42204ec0009e1fdfd10291&dn=test.cpp",
-  "total_pieces": 1,
-  "node_id": 1
-}
+{"file_name": "test.cpp", "file_hash": "1ac1db5d8bf4ead1dc42204ec0009e1fdfd10291", "magnet_link": "magnet:?xt=urn:btih:1ac1db5d8bf4ead1dc42204ec0009e1fdfd10291&dn=test.cpp", "total_pieces": 1, "node_id": 1}
