@@ -1,0 +1,7 @@
+#include <iostream>
+
+int main()
+{
+	std::cout << "You are a smart guy!" << std::endl;
+	return 0;
+}

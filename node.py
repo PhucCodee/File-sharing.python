@@ -12,11 +12,11 @@ SIZE = 8192
 
 
 class Node:
-    def __init__(self, tracker_host, tracker_port):
+    def __init__(self, tracker_host, tracker_port, node_port):
         self.tracker_host = tracker_host
         self.tracker_port = tracker_port
+        self.port = node_port
         self.ip_address = self.get_ip_address()
-        self.port = self.get_port()
         self.node_id = None  # Node ID will be assigned by the tracker
         self.upload_directory = None  # Will be set after registration
         self.download_directory = None
@@ -203,8 +203,12 @@ class Node:
                 ).start()
             elif choice == "2":
                 file_name = input("Enter the name of the file you want: ")
-                save_location = input("Enter the location to save the file: ")
+                # save_location = input("Enter the location to save the file: ")
+                print(
+                    "Enter the location to save the file: /Users/tranhoangphuc/demo.txt"
+                )
                 print("-------------------------------------------")
+                save_location = "/Users/tranhoangphuc/demo.txt"
                 threading.Thread(
                     target=self.download_file,
                     args=(file_name, save_location),
@@ -215,9 +219,10 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 2901)
+    node = Node("127.0.0.1", 2901, 5000)
     node.run()
+
     # node.register_with_tracker()
     # node.upload_file("/Users/tranhoangphuc/Downloads/test.cpp", "test.cpp")
-    # time.sleep(1)
+    # time.sleep(2)
     # node.upload_file("/Users/tranhoangphuc/Downloads/test1.txt", "test1.txt")
