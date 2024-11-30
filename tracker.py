@@ -6,8 +6,9 @@ import base64
 import time
 
 FORMAT = "utf-8"
-SIZE = 4096
+SIZE = 524288
 NODES_FILE = "nodes.json"
+FILES_FILE = "files.json"
 
 
 class Tracker:
@@ -50,6 +51,16 @@ class Tracker:
         except Exception as e:
             print(f"Error handling request: {e}")
 
+    def load_json(self, path):
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def save_json(self, path, data):
+        with open(path, "w") as f:
+            json.dump(data, f)
+
     def register_node(self, request, client_socket):
         self.node_counter += 1
         node_id = self.node_counter
@@ -61,16 +72,10 @@ class Tracker:
         }
 
         tracker_directory = "tracker"
-        if not os.path.exists(tracker_directory):
-            os.makedirs(tracker_directory)
+        os.makedirs(tracker_directory, exist_ok=True)
 
-        node_registry_path = os.path.join(tracker_directory, "nodes.json")
-
-        if os.path.exists(node_registry_path):
-            with open(node_registry_path, "r") as f:
-                node_registry = json.load(f)
-        else:
-            node_registry = {}
+        node_registry_path = os.path.join(tracker_directory, NODES_FILE)
+        node_registry = self.load_json(node_registry_path)
 
         node_registry[node_id] = {
             "ip_address": request["ip_address"],
@@ -78,8 +83,7 @@ class Tracker:
             "file_list": request["file_list"],
         }
 
-        with open(node_registry_path, "w") as f:
-            json.dump(node_registry, f)
+        self.save_json(node_registry_path, node_registry)
 
         response = {"status": "registered", "node_id": node_id}
         print(f"Registered node {node_id}")
@@ -92,76 +96,91 @@ class Tracker:
         magnet_link = request["magnet_link"]
         total_pieces = request["total_pieces"]
 
-        if node_id in self.nodes:
-            self.nodes[node_id]["file_list"].append(file_name)
-
-            tracker_directory = "tracker"
-            if not os.path.exists(tracker_directory):
-                os.makedirs(tracker_directory)
-
-            file_registry_path = os.path.join(tracker_directory, "files.json")
-            if os.path.exists(file_registry_path):
-                with open(file_registry_path, "r") as f:
-                    file_registry = json.load(f)
-            else:
-                file_registry = {}
-
-            file_registry[file_name] = file_hash
-
-            with open(file_registry_path, "w") as f:
-                json.dump(file_registry, f)
-
-            metadata = {
-                "file_name": file_name,
-                "file_hash": file_hash,
-                "magnet_link": magnet_link,
-                "total_pieces": total_pieces,
-                "node_id": node_id,
-            }
-            metadata_file_path = os.path.join(
-                tracker_directory, f"{file_hash}_metadata.json"
-            )
-            with open(metadata_file_path, "w") as f:
-                json.dump(metadata, f)
-
-            response = {"status": "uploaded"}
-            print(f"Node {node_id} uploaded file {file_name}")
-        else:
+        if node_id not in self.nodes:
             response = {"status": "error", "message": "Node ID not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
 
+        self.nodes[node_id]["file_list"].append(file_name)
+
+        tracker_directory = "tracker"
+        os.makedirs(tracker_directory, exist_ok=True)
+
+        file_registry_path = os.path.join(tracker_directory, FILES_FILE)
+        file_registry = self.load_json(file_registry_path)
+        file_registry[file_name] = file_hash
+        self.save_json(file_registry_path, file_registry)
+
+        metadata = {
+            "file_name": file_name,
+            "file_hash": file_hash,
+            "magnet_link": magnet_link,
+            "total_pieces": total_pieces,
+            "node_id": node_id,
+        }
+        metadata_file_path = os.path.join(
+            tracker_directory, f"{file_hash}_metadata.json"
+        )
+        self.save_json(metadata_file_path, metadata)
+
+        response = {"status": "uploaded"}
+        print(f"Node {node_id} uploaded file {file_name}")
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def download_node(self, request, client_socket):
         file_name = request["file_name"]
-        file_registry_path = os.path.join("tracker", "files.json")
+        file_registry_path = os.path.join("tracker", FILES_FILE)
+        node_registry_path = os.path.join("tracker", NODES_FILE)
 
-        if os.path.exists(file_registry_path):
-            with open(file_registry_path, "r") as f:
-                file_registry = json.load(f)
-
-            file_hash = file_registry.get(file_name)
-            if file_hash:
-                metadata_file_path = os.path.join(
-                    "tracker", f"{file_hash}_metadata.json"
-                )
-
-                if os.path.exists(metadata_file_path):
-                    with open(metadata_file_path, "r") as f:
-                        metadata = json.load(f)
-
-                    response = {
-                        "status": "success",
-                        "file_hash": file_hash,
-                        "magnet_link": metadata["magnet_link"],
-                        "total_pieces": metadata["total_pieces"],
-                        "node_id": metadata["node_id"],
-                    }
-                else:
-                    response = {"status": "error", "message": "Metadata file not found"}
-            else:
-                response = {"status": "error", "message": "File hash not found"}
-        else:
+        if not os.path.exists(file_registry_path):
             response = {"status": "error", "message": "File registry not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
+
+        if not os.path.exists(node_registry_path):
+            response = {"status": "error", "message": "Node registry not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
+
+        # Load the file registry
+        file_registry = self.load_json(file_registry_path)
+
+        # Get the file hash from the file registry
+        file_hash = file_registry.get(file_name)
+        if not file_hash:
+            response = {"status": "error", "message": "File hash not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
+
+        # Load the metadata file
+        metadata_file_path = os.path.join("tracker", f"{file_hash}_metadata.json")
+        metadata = self.load_json(metadata_file_path)
+        if not metadata:
+            response = {"status": "error", "message": "Metadata file not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
+
+        # Load the node registry
+        node_registry = self.load_json(node_registry_path)
+
+        # Get the source node information
+        source_node = node_registry.get(str(metadata["node_id"]))
+        if not source_node:
+            response = {"status": "error", "message": "Source node not found"}
+            client_socket.send(json.dumps(response).encode(FORMAT))
+            return
+
+        # Prepare the response
+        response = {
+            "status": "success",
+            "file_hash": file_hash,
+            "magnet_link": metadata["magnet_link"],
+            "total_pieces": metadata["total_pieces"],
+            "node_id": metadata["node_id"],
+            "ip_address": source_node["ip_address"],
+            "port": source_node["port"],
+        }
+        print(f"Node {metadata['node_id']} downloaded file {file_name}")
 
         client_socket.send(json.dumps(response).encode(FORMAT))
 

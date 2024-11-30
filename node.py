@@ -8,7 +8,7 @@ import time
 from function import generate_file_hash, create_magnet_link
 
 FORMAT = "utf-8"
-SIZE = 4096
+SIZE = 524288
 
 
 class Node:
@@ -54,11 +54,12 @@ class Node:
         if response["status"] == "registered":
             self.node_id = response["node_id"]
 
+            # Create a unique directory for the node
             self.file_directory = os.path.join(
-                os.path.dirname(__file__), f"node{self.node_id}_directory"
+                os.path.dirname(__file__),
+                f"node{self.node_id}_directory",
             )
-            if not os.path.exists(self.file_directory):
-                os.makedirs(self.file_directory)
+            os.makedirs(self.file_directory, exist_ok=True)
             self.file_list = self.get_files()
 
             print(f"Registered with tracker, node ID: {self.node_id}")
@@ -78,8 +79,7 @@ class Node:
         magnet_link = create_magnet_link(file_hash, file_name)
         pieces = self.divide_file(file_path)
 
-        for index, piece in pieces:
-            self.save_piece(file_hash, index, piece)
+        self.save_pieces(file_hash, pieces)
 
         self.file_list.append(file_name)
         data = {
@@ -106,15 +106,15 @@ class Node:
                 chunk_number += 1
         return pieces
 
-    def save_piece(self, file_hash, index, piece):
-        pieces_dir = os.path.join(self.file_directory, file_hash)
-        os.makedirs(pieces_dir, exist_ok=True)
+    def save_pieces(self, file_hash, pieces):
+        pieces_directory = os.path.join(self.file_directory, file_hash)
+        os.makedirs(pieces_directory, exist_ok=True)
 
-        piece_path = os.path.join(pieces_dir, f"piece_{index}")
-        with open(piece_path, "wb") as piece_file:
-            piece_file.write(piece)
-
-        print(f"Piece {index} saved successfully!")
+        for index, piece in pieces:
+            piece_path = os.path.join(pieces_directory, f"piece_{index}")
+            with open(piece_path, "wb") as piece_file:
+                piece_file.write(piece)
+            print(f"Piece {index} saved successfully!")
 
     # Downloading file
     def download_file(self, file_name):
@@ -124,23 +124,18 @@ class Node:
         }
         response = self.send_request(data)
         if response["status"] == "success":
-            magnet_link = response["magnet_link"]
             file_hash = response["file_hash"]
             total_pieces = response["total_pieces"]
             source_node_id = response["node_id"]
-            print(f"Magnet link: {magnet_link}")
-            # print(f"File hash: {file_hash}")
-            # print(f"Total pieces: {total_pieces}")
             print(f"Source node: {source_node_id}")
 
-            save_location = os.path.join(self.file_directory, file_hash)
+            save_location = os.path.join(self.file_directory, file_name)
             self.download_pieces(file_hash, total_pieces, source_node_id, save_location)
         else:
             print(f"Failed to download file {file_name}: {response['message']}")
 
     def download_pieces(self, file_hash, total_pieces, source_node_id, save_location):
-        source_directory = f"node{source_node_id}_directory"
-        pieces_dir = os.path.join(source_directory, file_hash)
+        pieces_dir = os.path.join(f"node{source_node_id}_directory", file_hash)
         if not os.path.exists(pieces_dir):
             print(f"Pieces directory {pieces_dir} does not exist.")
             return
@@ -155,7 +150,7 @@ class Node:
                     print(f"Piece {i} not found in {pieces_dir}.")
                     return
 
-        print(f"File downloaded successfully to {self.file_directory}")
+        print(f"File downloaded successfully to {save_location}")
 
     def run(self):
         self.register_with_tracker()
@@ -167,7 +162,7 @@ class Node:
             print("|  2. Download file        |")
             print("|  3. Exit                 |")
             print("----------------------------")
-            choice = input("Enter option: ")
+            choice = input("Enter options: ")
 
             if choice == "1":
                 file_path = input("Enter the path of the file to upload: ")
@@ -184,11 +179,16 @@ class Node:
                     target=self.download_file,
                     args=(file_name,),
                 ).start()
+            elif choice == "3":
+                print("Exiting...")
+                break
+            else:
+                print("Invalid option. Please choose a valid option.")
 
             time.sleep(2.5)
 
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 3000, 4000)
+    node = Node("127.0.0.1", 3000, 5000)
     node.run()
