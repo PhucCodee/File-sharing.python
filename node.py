@@ -12,19 +12,26 @@ SIZE = 524288
 
 
 class Node:
-    def __init__(self, tracker_host, tracker_port, node_port):
+    def __init__(self, tracker_host, tracker_port):
         self.tracker_host = tracker_host
         self.tracker_port = tracker_port
-        self.port = node_port
         self.ip_address = self.get_ip_address()
+        self.port = self.get_port()
         self.node_id = None  # Node ID will be assigned by the tracker
         self.file_directory = None  # Will be set after registration
         self.file_list = self.get_files()
+        self.running = True
 
     def get_ip_address(self):
-        # Get the IP address of the node
         hostname = socket.gethostname()
         return socket.gethostbyname(hostname)
+
+    def get_port(self):
+        # Create a socket and bind it to an available port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((self.ip_address, 0))
+            port = s.getsockname()[1]
+        return port
 
     def get_files(self):
         if self.file_directory and os.path.exists(self.file_directory):
@@ -36,6 +43,20 @@ class Node:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.tracker_host, self.tracker_port))
+                s.sendall(json.dumps(data).encode(FORMAT))
+                response = s.recv(SIZE)
+                return json.loads(response.decode(FORMAT))
+        except Exception as e:
+            print(f"Error sending request: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def send_node_request(self, data):
+        """Send a JSON request to another node and return the response."""
+        source_node_ip_address = data["source_node_ip_address"]
+        source_node_port = data["source_node_port"]
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((source_node_ip_address, source_node_port))
                 s.sendall(json.dumps(data).encode(FORMAT))
                 response = s.recv(SIZE)
                 return json.loads(response.decode(FORMAT))
@@ -57,7 +78,7 @@ class Node:
             # Create a unique directory for the node
             self.file_directory = os.path.join(
                 os.path.dirname(__file__),
-                f"node{self.node_id}_directory",
+                "node",
             )
             os.makedirs(self.file_directory, exist_ok=True)
             self.file_list = self.get_files()
@@ -65,6 +86,46 @@ class Node:
             print(f"Registered with tracker, node ID: {self.node_id}")
         else:
             print("Failed to register with tracker:", response["message"])
+
+    def node_start(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((self.ip_address, self.port))
+            s.listen()
+            print(f"Node listening on {self.ip_address}:{self.port}")
+            s.settimeout(1)  # Set a timeout to periodically check the running flag
+            while self.running:
+                try:
+                    conn, addr = s.accept()
+                    print(f"[{addr}] connected")
+                    threading.Thread(
+                        target=self.handle_node_request, args=(conn,)
+                    ).start()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"Error accepting connection: {e}")
+
+    def handle_node_request(self, client_socket):
+        """Handle incoming requests from other nodes."""
+        try:
+            data = client_socket.recv(SIZE).decode(FORMAT)
+            if not data:
+                print("Received empty data. Closing connection.")
+                return
+
+            request = json.loads(data)
+            command = request.get("command")
+            print(f"Received command: {command}")
+
+            if command == "download_piece":
+                self.send_piece(request, client_socket)
+            else:
+                response = {"error": "Unknown command"}
+                client_socket.send(json.dumps(response).encode(FORMAT))
+        except Exception as e:
+            print(f"Error handling request: {e}")
+        finally:
+            client_socket.close()
 
     # Uploading file
     def upload_file(self, file_path, file_name):
@@ -97,6 +158,8 @@ class Node:
         else:
             print(f"Failed to upload file {file_name}: {response['message']}")
 
+        print(f"Node: {self.node_id}, port: {self.port}")
+
     def divide_file(self, file_path):
         pieces = []
         with open(file_path, "rb") as f:
@@ -126,36 +189,120 @@ class Node:
         if response["status"] == "success":
             file_hash = response["file_hash"]
             total_pieces = response["total_pieces"]
-            source_node_id = response["node_id"]
-            print(f"Source node: {source_node_id}")
+            source_node_ip_address = response["ip_address"]
+            source_node_port = response["port"]
+
+            print(f"Source node: {source_node_ip_address} - {source_node_port}")
 
             save_location = os.path.join(self.file_directory, file_name)
-            self.download_pieces(file_hash, total_pieces, source_node_id, save_location)
+            self.download_pieces(
+                file_hash,
+                total_pieces,
+                source_node_ip_address,
+                source_node_port,
+                save_location,
+            )
         else:
             print(f"Failed to download file {file_name}: {response['message']}")
 
-    def download_pieces(self, file_hash, total_pieces, source_node_id, save_location):
-        pieces_dir = os.path.join(f"node{source_node_id}_directory", file_hash)
-        if not os.path.exists(pieces_dir):
-            print(f"Pieces directory {pieces_dir} does not exist.")
-            return
+        print(f"Node: {self.node_id}, port: {self.port}")
 
+    def download_pieces(
+        self,
+        file_hash,
+        total_pieces,
+        source_node_ip_address,
+        source_node_port,
+        save_location,
+    ):
+        pieces = [None] * total_pieces  # Initialize a list to store the pieces
+        for i in range(total_pieces):
+            piece_data = self.request_piece(
+                source_node_ip_address, source_node_port, file_hash, i
+            )
+            if piece_data:
+                pieces[i] = piece_data
+            else:
+                print(f"Piece {i} not found or failed to download.")
+                return
+
+        # Write all pieces to the output file
         with open(save_location, "wb") as output_file:
-            for i in range(total_pieces):
-                piece_path = os.path.join(pieces_dir, f"piece_{i}")
-                if os.path.exists(piece_path):
-                    with open(piece_path, "rb") as piece_file:
-                        output_file.write(piece_file.read())
-                else:
-                    print(f"Piece {i} not found in {pieces_dir}.")
-                    return
+            for piece in pieces:
+                output_file.write(piece)
 
         print(f"File downloaded successfully to {save_location}")
 
+    def request_piece(self, target_ip, target_port, file_hash, piece_index):
+        """Request a file piece from another node."""
+        data = {
+            "command": "download_piece",
+            "file_hash": file_hash,
+            "piece_index": piece_index,
+        }
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((target_ip, target_port))
+                s.sendall(json.dumps(data).encode(FORMAT))
+
+                # Receive data in chunks until the complete response is received
+                response = b""
+                while True:
+                    chunk = s.recv(SIZE)
+                    if not chunk:
+                        break
+                    response += chunk
+
+                # print(f"Received raw response: {response}")  # Log the raw response
+                response_data = json.loads(response.decode(FORMAT))
+                if response_data["status"] == "success":
+                    piece_data = bytes.fromhex(
+                        response_data["piece_data"]
+                    )  # Convert hex string back to binary
+                    return piece_data
+                else:
+                    print(f"Error: {response_data['message']}")
+                    return None
+        except ConnectionResetError:
+            print(
+                f"Connection reset by peer when requesting piece {piece_index} from {target_ip}:{target_port}"
+            )
+            return None
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
+            # print(
+            # f"Received raw response: {response}"
+            # )  # Log the raw response again for debugging
+            return None
+        except Exception as e:
+            print(
+                f"Error requesting piece {piece_index} from {target_ip}:{target_port} - {e}"
+            )
+            return None
+
+    def send_piece(self, request, client_socket):
+        """Send a file piece to another node."""
+        file_hash = request["file_hash"]
+        piece_index = request["piece_index"]
+        piece_path = os.path.join(
+            self.file_directory, file_hash, f"piece_{piece_index}"
+        )
+        if os.path.exists(piece_path):
+            with open(piece_path, "rb") as piece_file:
+                piece_data = piece_file.read()
+            response = {
+                "status": "success",
+                "piece_data": piece_data.hex(),  # Convert binary data to hex string
+            }
+        else:
+            response = {"status": "error", "message": "Piece not found"}
+        client_socket.send(json.dumps(response).encode(FORMAT))
+
     def run(self):
         self.register_with_tracker()
+        threading.Thread(target=self.node_start).start()
+        time.sleep(1)
         while True:
-            print("                            ")
             print("----------------------------")
             print("|   Choose an option       |")
             print("|  1. Upload file          |")
@@ -181,6 +328,7 @@ class Node:
                 ).start()
             elif choice == "3":
                 print("Exiting...")
+                self.running = False
                 break
             else:
                 print("Invalid option. Please choose a valid option.")
@@ -190,5 +338,5 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 3000, 5000)
+    node = Node("127.0.0.1", 3000)
     node.run()

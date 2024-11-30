@@ -17,18 +17,26 @@ class Tracker:
         self.port = port
         self.nodes = {}  # Dictionary to store node information
         self.node_counter = 0  # Counter for auto-incrementing node IDs
+        self.running = True
 
     def start(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.host, self.port))
             s.listen()
             print(f"Tracker listening on {self.host}:{self.port}")
-            while True:
-                conn, addr = s.accept()
-                print(f"[{addr}] connected")
-                threading.Thread(target=self.handle_request, args=(conn,)).start()
+            s.settimeout(1)  # Set a timeout to periodically check the running flag
+            while self.running:
+                try:
+                    conn, addr = s.accept()
+                    print(f"[{addr}] connected")
+                    threading.Thread(target=self.handle_request, args=(conn,)).start()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"Error accepting connection: {e}")
 
     def handle_request(self, client_socket):
+        """Handle incoming requests from nodes."""
         try:
             data = client_socket.recv(SIZE).decode(FORMAT)
             if not data:
@@ -187,4 +195,13 @@ class Tracker:
 
 if __name__ == "__main__":
     tracker = Tracker("127.0.0.1", 3000)
-    tracker.start()
+
+    # Start the tracker in a separate thread
+    threading.Thread(target=tracker.start).start()
+    print("Enter x to terminate!")
+    while True:
+        command = input("")
+        if command == "x":
+            print("Exiting...")
+            tracker.running = False
+            break
