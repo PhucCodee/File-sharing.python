@@ -155,18 +155,20 @@ class Node:
                     print(f"Piece {i} not found in {pieces_dir}.")
                     return
 
-        print(f"File downloaded successfully to {save_location}")
+        print(f"File downloaded successfully to {self.file_directory}")
 
     def run(self):
         self.register_with_tracker()
+        print("************************************")
+        print(f"*    Welcome node {self.node_id}!  *")
+        print("************************************")
         while True:
-            print(f"Welcome node {self.node_id}!")
-            print("------------------------------")
-            print("|  Choose an option          |")
-            print("|  1. Upload file            |")
-            print("|  2. Download file          |")
-            print("|  3. Exit                   |")
-            print("------------------------------")
+            print("----------------------------")
+            print("|   Choose an option       |")
+            print("|  1. Upload file          |")
+            print("|  2. Download file        |")
+            print("|  3. Exit                 |")
+            print("----------------------------")
             choice = input("Enter command: ")
 
             if choice == "1":
@@ -185,7 +187,7 @@ class Node:
                     args=(file_name,),
                 ).start()
 
-            time.sleep(2)
+            time.sleep(2.5)
 
 
 if __name__ == "__main__":
