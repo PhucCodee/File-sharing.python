@@ -8,7 +8,7 @@ import time
 from function import generate_file_hash, create_magnet_link
 
 FORMAT = "utf-8"
-SIZE = 8192
+SIZE = 4096
 
 
 class Node:
@@ -18,33 +18,17 @@ class Node:
         self.port = node_port
         self.ip_address = self.get_ip_address()
         self.node_id = None  # Node ID will be assigned by the tracker
-        self.upload_directory = None  # Will be set after registration
-        self.download_directory = None
-        self.uploaded_file_list = self.get_uploaded_files()
-        self.downloaded_file_list = self.get_downloaded_files()
+        self.file_directory = None  # Will be set after registration
+        self.file_list = self.get_files()
 
     def get_ip_address(self):
         # Get the IP address of the node
         hostname = socket.gethostname()
         return socket.gethostbyname(hostname)
 
-    def get_port(self):
-        # Create a socket and bind it to an available port
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((self.ip_address, 0))  # Bind to an available port
-            port = s.getsockname()[1]  # Retrieve the assigned port number
-        return port
-
-    def get_uploaded_files(self):
-        # Get the list of files in the shared directory
-        if self.upload_directory and os.path.exists(self.upload_directory):
-            return os.listdir(self.upload_directory)
-        return []
-
-    def get_downloaded_files(self):
-        # Get the list of files in the shared directory
-        if self.download_directory and os.path.exists(self.download_directory):
-            return os.listdir(self.download_directory)
+    def get_files(self):
+        if self.file_directory and os.path.exists(self.file_directory):
+            return os.listdir(self.file_directory)
         return []
 
     def send_request(self, data):
@@ -60,31 +44,22 @@ class Node:
             return {"status": "error", "message": str(e)}
 
     def register_with_tracker(self):
-        # Register the node with the tracker server
         data = {
             "command": "register",
             "ip_address": self.ip_address,
             "port": self.port,
-            "uploaded_file_list": self.uploaded_file_list,
+            "file_list": self.file_list,
         }
         response = self.send_request(data)
         if response["status"] == "registered":
             self.node_id = response["node_id"]
 
-            # Create upload and download directory
-            self.upload_directory = os.path.join(
-                os.path.dirname(__file__), f"node{self.node_id}_upload"
+            self.file_directory = os.path.join(
+                os.path.dirname(__file__), f"node{self.node_id}_directory"
             )
-            if not os.path.exists(self.upload_directory):
-                os.makedirs(self.upload_directory)
-            self.uploaded_file_list = self.get_uploaded_files()
-
-            self.download_directory = os.path.join(
-                os.path.dirname(__file__), f"node{self.node_id}_download"
-            )
-            if not os.path.exists(self.download_directory):
-                os.makedirs(self.download_directory)
-            self.downloaded_file_list = self.get_downloaded_files()
+            if not os.path.exists(self.file_directory):
+                os.makedirs(self.file_directory)
+            self.file_list = self.get_files()
 
             print(f"Registered with tracker, node ID: {self.node_id}")
         else:
@@ -106,7 +81,7 @@ class Node:
         for index, piece in pieces:
             self.save_piece(file_hash, index, piece)
 
-        self.uploaded_file_list.append(file_name)
+        self.file_list.append(file_name)
         data = {
             "command": "upload",
             "node_id": self.node_id,
@@ -114,11 +89,11 @@ class Node:
             "file_hash": file_hash,
             "magnet_link": magnet_link,
             "total_pieces": len(pieces),
-            "uploaded_file_list": self.uploaded_file_list,
+            "file_list": self.file_list,
         }
         response = self.send_request(data)
         if response["status"] == "uploaded":
-            print(f"File {file_name} uploaded successfully and tracker updated.")
+            print(f"File {file_name} uploaded successfully.")
         else:
             print(f"Failed to upload file {file_name}: {response['message']}")
 
@@ -132,11 +107,9 @@ class Node:
         return pieces
 
     def save_piece(self, file_hash, index, piece):
-        # Define the directory to save the pieces
-        pieces_dir = os.path.join(self.upload_directory, file_hash)
+        pieces_dir = os.path.join(self.file_directory, file_hash)
         os.makedirs(pieces_dir, exist_ok=True)
 
-        # Save the piece to a file
         piece_path = os.path.join(pieces_dir, f"piece_{index}")
         with open(piece_path, "wb") as piece_file:
             piece_file.write(piece)
@@ -144,7 +117,7 @@ class Node:
         print(f"Piece {index} saved successfully!")
 
     # Downloading file
-    def download_file(self, file_name, save_location):
+    def download_file(self, file_name):
         data = {
             "command": "download",
             "file_name": file_name,
@@ -154,17 +127,20 @@ class Node:
             magnet_link = response["magnet_link"]
             file_hash = response["file_hash"]
             total_pieces = response["total_pieces"]
+            source_node_id = response["node_id"]
             print(f"Magnet link: {magnet_link}")
-            print(f"File hash: {file_hash}")
-            print(f"Total pieces: {total_pieces}")
+            # print(f"File hash: {file_hash}")
+            # print(f"Total pieces: {total_pieces}")
+            print(f"Source node: {source_node_id}")
 
-            # Proceed with downloading the file using the magnet link and metadata
-            self.download_pieces(file_hash, total_pieces, save_location)
+            save_location = os.path.join(self.file_directory, file_hash)
+            self.download_pieces(file_hash, total_pieces, source_node_id, save_location)
         else:
             print(f"Failed to download file {file_name}: {response['message']}")
 
-    def download_pieces(self, file_hash, total_pieces, save_location):
-        pieces_dir = os.path.join(self.upload_directory, file_hash)
+    def download_pieces(self, file_hash, total_pieces, source_node_id, save_location):
+        source_directory = f"node{source_node_id}_directory"
+        pieces_dir = os.path.join(source_directory, file_hash)
         if not os.path.exists(pieces_dir):
             print(f"Pieces directory {pieces_dir} does not exist.")
             return
@@ -203,15 +179,10 @@ class Node:
                 ).start()
             elif choice == "2":
                 file_name = input("Enter the name of the file you want: ")
-                # save_location = input("Enter the location to save the file: ")
-                print(
-                    "Enter the location to save the file: /Users/tranhoangphuc/demo.txt"
-                )
                 print("-------------------------------------------")
-                save_location = "/Users/tranhoangphuc/demo.txt"
                 threading.Thread(
                     target=self.download_file,
-                    args=(file_name, save_location),
+                    args=(file_name,),
                 ).start()
 
             time.sleep(2)
@@ -219,10 +190,5 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 2901, 5001)
+    node = Node("127.0.0.1", 3000, 5000)
     node.run()
-
-    # node.register_with_tracker()
-    # node.upload_file("/Users/tranhoangphuc/Downloads/test.cpp", "test.cpp")
-    # time.sleep(2)
-    # node.upload_file("/Users/tranhoangphuc/Downloads/test1.txt", "test1.txt")
