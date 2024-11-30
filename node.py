@@ -159,17 +159,15 @@ class Node:
 
     def run(self):
         self.register_with_tracker()
-        print("************************************")
-        print(f"*    Welcome node {self.node_id}!  *")
-        print("************************************")
         while True:
+            print("                            ")
             print("----------------------------")
             print("|   Choose an option       |")
             print("|  1. Upload file          |")
             print("|  2. Download file        |")
             print("|  3. Exit                 |")
             print("----------------------------")
-            choice = input("Enter command: ")
+            choice = input("Enter option: ")
 
             if choice == "1":
                 file_path = input("Enter the path of the file to upload: ")
@@ -192,5 +190,5 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 3000, 5000)
+    node = Node("127.0.0.1", 3000, 4000)
     node.run()
