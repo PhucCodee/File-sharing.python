@@ -30,8 +30,7 @@ class Tracker:
                 try:
                     conn, addr = s.accept()
                     print(f"[{addr}] connected")
-                    threading.Thread(target=self.handle_request,
-                                     args=(conn,)).start()
+                    threading.Thread(target=self.handle_request, args=(conn,)).start()
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -143,14 +142,12 @@ class Tracker:
         node_registry_path = os.path.join("tracker", NODES_FILE)
 
         if not os.path.exists(file_registry_path):
-            response = {"status": "error",
-                        "message": "File registry not found"}
+            response = {"status": "error", "message": "File registry not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
         if not os.path.exists(node_registry_path):
-            response = {"status": "error",
-                        "message": "Node registry not found"}
+            response = {"status": "error", "message": "Node registry not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
@@ -165,12 +162,10 @@ class Tracker:
             return
 
         # Load the metadata file
-        metadata_file_path = os.path.join(
-            "tracker", f"{file_hash}_metadata.json")
+        metadata_file_path = os.path.join("tracker", f"{file_hash}_metadata.json")
         metadata = self.load_json(metadata_file_path)
         if not metadata:
-            response = {"status": "error",
-                        "message": "Metadata file not found"}
+            response = {"status": "error", "message": "Metadata file not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
