@@ -24,12 +24,14 @@ class Tracker:
             s.bind((self.host, self.port))
             s.listen()
             print(f"Tracker listening on {self.host}:{self.port}")
-            s.settimeout(1)  # Set a timeout to periodically check the running flag
+            # Set a timeout to periodically check the running flag
+            s.settimeout(1)
             while self.running:
                 try:
                     conn, addr = s.accept()
                     print(f"[{addr}] connected")
-                    threading.Thread(target=self.handle_request, args=(conn,)).start()
+                    threading.Thread(target=self.handle_request,
+                                     args=(conn,)).start()
                 except socket.timeout:
                     continue
                 except Exception as e:
@@ -141,12 +143,14 @@ class Tracker:
         node_registry_path = os.path.join("tracker", NODES_FILE)
 
         if not os.path.exists(file_registry_path):
-            response = {"status": "error", "message": "File registry not found"}
+            response = {"status": "error",
+                        "message": "File registry not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
         if not os.path.exists(node_registry_path):
-            response = {"status": "error", "message": "Node registry not found"}
+            response = {"status": "error",
+                        "message": "Node registry not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
@@ -161,10 +165,12 @@ class Tracker:
             return
 
         # Load the metadata file
-        metadata_file_path = os.path.join("tracker", f"{file_hash}_metadata.json")
+        metadata_file_path = os.path.join(
+            "tracker", f"{file_hash}_metadata.json")
         metadata = self.load_json(metadata_file_path)
         if not metadata:
-            response = {"status": "error", "message": "Metadata file not found"}
+            response = {"status": "error",
+                        "message": "Metadata file not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
@@ -188,20 +194,23 @@ class Tracker:
             "ip_address": source_node["ip_address"],
             "port": source_node["port"],
         }
-        print(f"Node {metadata['node_id']} downloaded file {file_name}")
+        requester_id = request["requester_id"]
+        print(f"Node {requester_id} downloaded file {file_name}")
 
         client_socket.send(json.dumps(response).encode(FORMAT))
 
 
 if __name__ == "__main__":
-    tracker = Tracker("127.0.0.1", 3000)
+    tracker = Tracker("10.128.86.17", 3000)
+    # tracker = Tracker("14.241.225.112", 3000)
 
     # Start the tracker in a separate thread
     threading.Thread(target=tracker.start).start()
-    print("Enter x to terminate!")
+    time.sleep(1)
+    print("Press enter to terminate!")
     while True:
         command = input("")
-        if command == "x":
+        if command == "":
             print("Exiting...")
             tracker.running = False
             break
