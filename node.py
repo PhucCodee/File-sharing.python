@@ -257,7 +257,6 @@ class Node:
                         break
                     response += chunk
 
-                # print(f"Received raw response: {response}")  # Log the raw response
                 response_data = json.loads(response.decode(FORMAT))
                 if response_data["status"] == "success":
                     piece_data = bytes.fromhex(
@@ -269,20 +268,18 @@ class Node:
                     return None
         except ConnectionResetError:
             print(
-                f"Connection reset by peer when requesting piece {
-                    piece_index} from {target_ip}:{target_port}"
+                f"Connection reset by peer when requesting piece {piece_index} from {target_ip}:{target_port}"
             )
             return None
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
-            # print(
-            # f"Received raw response: {response}"
-            # )  # Log the raw response again for debugging
+            print(
+                f"Received raw response: {response}"
+            )  # Log the raw response again for debugging
             return None
         except Exception as e:
             print(
-                f"Error requesting piece {piece_index} from {
-                    target_ip}:{target_port} - {e}"
+                f"Error requesting piece {piece_index} from {target_ip}:{target_port} - {e}"
             )
             return None
 
