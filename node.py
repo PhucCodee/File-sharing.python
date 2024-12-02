@@ -92,7 +92,8 @@ class Node:
             s.bind((self.ip_address, self.port))
             s.listen()
             print(f"Node listening on {self.ip_address}:{self.port}")
-            s.settimeout(1)  # Set a timeout to periodically check the running flag
+            # Set a timeout to periodically check the running flag
+            s.settimeout(1)
             while self.running:
                 try:
                     conn, addr = s.accept()
@@ -184,6 +185,7 @@ class Node:
         data = {
             "command": "download",
             "file_name": file_name,
+            "requester_id": self.node_id,
         }
         response = self.send_request(data)
         if response["status"] == "success":
@@ -192,7 +194,8 @@ class Node:
             source_node_ip_address = response["ip_address"]
             source_node_port = response["port"]
 
-            print(f"Source node: {source_node_ip_address} - {source_node_port}")
+            print(f"Source node: {
+                  source_node_ip_address} - {source_node_port}")
 
             save_location = os.path.join(self.file_directory, file_name)
             self.download_pieces(
@@ -203,7 +206,8 @@ class Node:
                 save_location,
             )
         else:
-            print(f"Failed to download file {file_name}: {response['message']}")
+            print(f"Failed to download file {
+                  file_name}: {response['message']}")
 
         print(f"Node: {self.node_id}, port: {self.port}")
 
@@ -265,7 +269,8 @@ class Node:
                     return None
         except ConnectionResetError:
             print(
-                f"Connection reset by peer when requesting piece {piece_index} from {target_ip}:{target_port}"
+                f"Connection reset by peer when requesting piece {
+                    piece_index} from {target_ip}:{target_port}"
             )
             return None
         except json.JSONDecodeError as e:
@@ -276,7 +281,8 @@ class Node:
             return None
         except Exception as e:
             print(
-                f"Error requesting piece {piece_index} from {target_ip}:{target_port} - {e}"
+                f"Error requesting piece {piece_index} from {
+                    target_ip}:{target_port} - {e}"
             )
             return None
 
@@ -338,5 +344,5 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("127.0.0.1", 3000)
+    node = Node("10.128.86.17", 3000)
     node.run()
