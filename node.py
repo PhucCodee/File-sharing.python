@@ -78,7 +78,7 @@ class Node:
             # Create a unique directory for the node
             self.file_directory = os.path.join(
                 os.path.dirname(__file__),
-                "node",
+                f"node{self.node_id}",
             )
             os.makedirs(self.file_directory, exist_ok=True)
             self.file_list = self.get_files()
@@ -273,9 +273,6 @@ class Node:
             return None
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
-            print(
-                f"Received raw response: {response}"
-            )  # Log the raw response again for debugging
             return None
         except Exception as e:
             print(
@@ -341,5 +338,5 @@ class Node:
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("10.128.86.17", 3000)
+    node = Node("192.168.2.5", 3000)
     node.run()
