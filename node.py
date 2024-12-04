@@ -2,7 +2,6 @@ import os
 import socket
 import threading
 import json
-import base64
 import time
 
 from function import generate_file_hash, create_magnet_link
@@ -18,8 +17,7 @@ class Node:
         self.ip_address = self.get_ip_address()
         self.port = self.get_port()
         self.node_id = None  # Node ID will be assigned by the tracker
-        self.file_directory = None  # Will be set after registration
-        self.file_list = self.get_files()
+        self.file_directory = None  # File directory will be created during registration
         self.running = True
 
     def get_ip_address(self):
@@ -32,11 +30,6 @@ class Node:
             s.bind((self.ip_address, 0))
             port = s.getsockname()[1]
         return port
-
-    def get_files(self):
-        if self.file_directory and os.path.exists(self.file_directory):
-            return os.listdir(self.file_directory)
-        return []
 
     def send_request(self, data):
         """Send a JSON request to the tracker and return the response."""
@@ -69,7 +62,6 @@ class Node:
             "command": "register",
             "ip_address": self.ip_address,
             "port": self.port,
-            "file_list": self.file_list,
         }
         response = self.send_request(data)
         if response["status"] == "registered":
@@ -81,7 +73,6 @@ class Node:
                 f"node{self.node_id}",
             )
             os.makedirs(self.file_directory, exist_ok=True)
-            self.file_list = self.get_files()
 
             print(f"Registered with tracker, node ID: {self.node_id}")
         else:
@@ -118,7 +109,9 @@ class Node:
             command = request.get("command")
             print(f"Received command: {command}")
 
-            if command == "download_piece":
+            if command == "upload_piece":
+                self.receive_piece_upload(request, client_socket)
+            elif command == "download_piece":
                 self.send_piece(request, client_socket)
             else:
                 response = {"error": "Unknown command"}
@@ -135,15 +128,39 @@ class Node:
         if not os.path.isfile(file_path):
             print("File type is not valid!")
 
+        print(f"Node: {self.node_id}, port: {self.port}")
         print(f"Uploading file: {file_path}")
 
         file_hash = generate_file_hash(file_path)
         magnet_link = create_magnet_link(file_hash, file_name)
         pieces = self.divide_file(file_path)
+        active_nodes = self.get_active_nodes()
+        if not active_nodes:
+            print("No active nodes available for file distribution.")
+            return
 
-        self.save_pieces(file_hash, pieces)
+        node_ids = list(active_nodes.keys())
+        piece_distribution = {}
 
-        self.file_list.append(file_name)
+        for index, piece in enumerate(pieces):
+            piece_distribution[index] = []
+
+            # Send to the first node
+            target_node_id_1 = node_ids[index % len(node_ids)]
+            target_node_1 = active_nodes[target_node_id_1]
+            self.send_piece_upload(
+                target_node_id_1, target_node_1, file_hash, index, piece
+            )
+            piece_distribution[index].append(target_node_id_1)
+
+            # Send to the second node
+            target_node_id_2 = node_ids[(index + 1) % len(node_ids)]
+            target_node_2 = active_nodes[target_node_id_2]
+            self.send_piece_upload(
+                target_node_id_2, target_node_2, file_hash, index, piece
+            )
+            piece_distribution[index].append(target_node_id_2)
+
         data = {
             "command": "upload",
             "node_id": self.node_id,
@@ -151,7 +168,7 @@ class Node:
             "file_hash": file_hash,
             "magnet_link": magnet_link,
             "total_pieces": len(pieces),
-            "file_list": self.file_list,
+            "piece_distribution": piece_distribution,
         }
         response = self.send_request(data)
         if response["status"] == "uploaded":
@@ -159,26 +176,82 @@ class Node:
         else:
             print(f"Failed to upload file {file_name}: {response['message']}")
 
-        print(f"Node: {self.node_id}, port: {self.port}")
-
     def divide_file(self, file_path):
         pieces = []
         with open(file_path, "rb") as f:
             chunk_number = 0
             while chunk := f.read(SIZE):
-                pieces.append((chunk_number, chunk))
+                pieces.append((chunk))
                 chunk_number += 1
         return pieces
 
-    def save_pieces(self, file_hash, pieces):
+    def get_active_nodes(self):
+        """Request the list of active nodes from the tracker."""
+        data = {"command": "get_nodes"}
+        response = self.send_request(data)
+        if response["status"] == "success":
+            return response["nodes"]
+        else:
+            print("Failed to get list of active nodes:", response["message"])
+            return {}
+
+    def send_piece_upload(
+        self, target_node_id, target_node, file_hash, piece_index, piece
+    ):
+        """Send a file piece to another node."""
+        data = {
+            "command": "upload_piece",
+            "node_id": target_node_id,
+            "file_hash": file_hash,
+            "piece_index": piece_index,
+            "piece_data": piece.hex(),  # Convert binary data to hex string
+        }
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((target_node["ip_address"], target_node["port"]))
+                s.sendall(json.dumps(data).encode(FORMAT))
+
+                # Receive data in chunks until the complete response is received
+                response = b""
+                while True:
+                    chunk = s.recv(SIZE)
+                    if not chunk:
+                        break
+                    response += chunk
+
+                response_data = json.loads(response.decode(FORMAT))
+                if response_data["status"] == "success":
+                    print(f"Piece {piece_index} sent to node {target_node_id}")
+                else:
+                    print(
+                        f"Failed to send piece {piece_index} to node {target_node_id}: {response_data['message']}"
+                    )
+        except Exception as e:
+            print(f"Error sending piece {piece_index} to node {target_node_id}: {e}")
+
+    def receive_piece_upload(self, request, client_socket):
+        """Receive a file piece from another node and save it."""
+        node_id = request["node_id"]
+        file_hash = request["file_hash"]
+        piece_index = request["piece_index"]
+        piece_data = bytes.fromhex(
+            request["piece_data"]
+        )  # Convert hex string back to binary
+
+        # Create the directory structure: node_id/file_hash
         pieces_directory = os.path.join(self.file_directory, file_hash)
         os.makedirs(pieces_directory, exist_ok=True)
 
-        for index, piece in pieces:
-            piece_path = os.path.join(pieces_directory, f"piece_{index}")
-            with open(piece_path, "wb") as piece_file:
-                piece_file.write(piece)
-            print(f"Piece {index} saved successfully!")
+        # Save the piece to the appropriate file
+        piece_path = os.path.join(pieces_directory, f"piece_{piece_index}")
+        with open(piece_path, "wb") as piece_file:
+            piece_file.write(piece_data)
+        print(
+            f"Node {node_id}: piece {piece_index} saved successfully in {pieces_directory}!"
+        )
+
+        response = {"status": "success"}
+        client_socket.send(json.dumps(response).encode(FORMAT))
 
     # Downloading file
     def download_file(self, file_name):
@@ -191,39 +264,30 @@ class Node:
         if response["status"] == "success":
             file_hash = response["file_hash"]
             total_pieces = response["total_pieces"]
-            source_node_ip_address = response["ip_address"]
-            source_node_port = response["port"]
-
-            print(f"Source node: {
-                  source_node_ip_address} - {source_node_port}")
+            piece_distribution = response["piece_distribution"]
+            active_nodes = self.get_active_nodes()
+            print(f"Downloading file: {file_name}")
 
             save_location = os.path.join(self.file_directory, file_name)
             self.download_pieces(
-                file_hash,
-                total_pieces,
-                source_node_ip_address,
-                source_node_port,
-                save_location,
+                file_hash, total_pieces, piece_distribution, save_location, active_nodes
             )
         else:
-            print(f"Failed to download file {
-                  file_name}: {response['message']}")
-
-        print(f"Node: {self.node_id}, port: {self.port}")
+            print(f"Failed to download file {file_name}: {response['message']}")
 
     def download_pieces(
-        self,
-        file_hash,
-        total_pieces,
-        source_node_ip_address,
-        source_node_port,
-        save_location,
+        self, file_hash, total_pieces, piece_distribution, save_location, active_nodes
     ):
         pieces = [None] * total_pieces  # Initialize a list to store the pieces
         for i in range(total_pieces):
-            piece_data = self.request_piece(
-                source_node_ip_address, source_node_port, file_hash, i
-            )
+            piece_data = None
+            for node_id in piece_distribution[str(i)]:
+                node_info = active_nodes[node_id]
+                piece_data = self.request_piece(
+                    node_info["ip_address"], node_info["port"], file_hash, i
+                )
+                if piece_data:
+                    break
             if piece_data:
                 pieces[i] = piece_data
             else:
@@ -266,14 +330,6 @@ class Node:
                 else:
                     print(f"Error: {response_data['message']}")
                     return None
-        except ConnectionResetError:
-            print(
-                f"Connection reset by peer when requesting piece {piece_index} from {target_ip}:{target_port}"
-            )
-            return None
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            return None
         except Exception as e:
             print(
                 f"Error requesting piece {piece_index} from {target_ip}:{target_port} - {e}"
@@ -298,45 +354,67 @@ class Node:
             response = {"status": "error", "message": "Piece not found"}
         client_socket.send(json.dumps(response).encode(FORMAT))
 
+    def disconnect(self):
+        data = {
+            "command": "disconnect",
+            "node_id": self.node_id,
+        }
+        self.send_request(data)
+
     def run(self):
         self.register_with_tracker()
         threading.Thread(target=self.node_start).start()
         time.sleep(1)
-        while True:
-            print("----------------------------")
-            print("|   Choose an option       |")
-            print("|  1. Upload file          |")
-            print("|  2. Download file        |")
-            print("|  3. Exit                 |")
-            print("----------------------------")
-            choice = input("Enter options: ")
-
-            if choice == "1":
-                file_path = input("Enter the path of the file to upload: ")
-                file_name = input("Enter the name of the file to upload: ")
-                print("-------------------------------------------")
-                threading.Thread(
-                    target=self.upload_file,
-                    args=(file_path, file_name),
-                ).start()
-            elif choice == "2":
-                file_name = input("Enter the name of the file you want: ")
-                print("-------------------------------------------")
-                threading.Thread(
-                    target=self.download_file,
-                    args=(file_name,),
-                ).start()
-            elif choice == "3":
-                print("Exiting...")
-                self.running = False
-                break
-            else:
-                print("Invalid option. Please choose a valid option.")
-
-            time.sleep(2.5)
+        try:
+            while True:
+                print("\033[1;34m----------------------------\033[0m")
+                print("\033[1;34m|   Choose an option       |\033[0m")
+                print("\033[1;34m|  1. Upload file          |\033[0m")
+                print("\033[1;34m|  2. Download file        |\033[0m")
+                print("\033[1;34m|  3. Exit                 |\033[0m")
+                print("\033[1;34m----------------------------\033[0m")
+                choice = input("\033[1;33mEnter option: \033[0m")
+                if choice == "1":
+                    file_path = input(
+                        "\033[1;33mEnter the path of the file to upload: \033[0m"
+                    )
+                    file_name = input(
+                        "\033[1;33mEnter the name of the file to upload: \033[0m"
+                    )
+                    print(
+                        "\033[1;34m-------------------------------------------\033[0m"
+                    )
+                    threading.Thread(
+                        target=self.upload_file,
+                        args=(file_path, file_name),
+                    ).start()
+                elif choice == "2":
+                    file_name = input(
+                        "\033[1;33mEnter the name of the file you want: \033[0m"
+                    )
+                    print(
+                        "\033[1;34m-------------------------------------------\033[0m"
+                    )
+                    threading.Thread(
+                        target=self.download_file,
+                        args=(file_name,),
+                    ).start()
+                elif choice == "3":
+                    print("\033[1;31mExiting...\033[0m")
+                    self.running = False
+                    self.disconnect()
+                    break
+                else:
+                    print(
+                        "\033[1;31mInvalid option. Please choose a valid option.\033[0m"
+                    )
+                time.sleep(2)
+        finally:
+            if self.running:
+                self.disconnect()
 
 
 if __name__ == "__main__":
     # Example usage
-    node = Node("192.168.2.5", 3000)
+    node = Node("192.168.2.5", 4000)
     node.run()
