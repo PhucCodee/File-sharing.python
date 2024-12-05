@@ -206,7 +206,9 @@ class Tracker:
 
 
 if __name__ == "__main__":
-    tracker = Tracker("192.168.2.5", 4000)
+    ip_address = input("Enter tracker ip address: ")
+    port = int(input("Enter tracker port: "))
+    tracker = Tracker(ip_address, port)
 
     print("\033[1;31mPRESS ENTER TO TERMINATE!\033[0m")
     threading.Thread(target=tracker.start).start()
