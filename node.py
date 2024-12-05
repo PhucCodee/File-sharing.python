@@ -82,7 +82,7 @@ class Node:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.ip_address, self.port))
             s.listen()
-            print(f"\033[1;32mNode listening on {self.ip_address}:{self.port}]\033[0m")
+            print(f"\033[1;32mNode listening on [{self.ip_address}:{self.port}]\033[0m")
             s.settimeout(1)
             while self.running:
                 try:
@@ -410,7 +410,8 @@ class Node:
 
 
 if __name__ == "__main__":
-    ip_address = input("Enter node ip address: ")
-    port = int(input("Enter node port: "))
-    node = Node(ip_address, port)
+    # print("192.168.2.5")
+    # ip_address = input("Enter node ip address: ")
+    # port = int(input("Enter node port: "))
+    node = Node("192.168.2.5", 4000)
     node.run()
