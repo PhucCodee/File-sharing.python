@@ -410,5 +410,7 @@ class Node:
 
 
 if __name__ == "__main__":
-    node = Node("192.168.2.5", 4000)
+    ip_address = input("Enter node ip address: ")
+    port = int(input("Enter node port: "))
+    node = Node(ip_address, port)
     node.run()
