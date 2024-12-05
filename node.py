@@ -7,7 +7,7 @@ import time
 from function import generate_file_hash, create_magnet_link
 
 FORMAT = "utf-8"
-SIZE = 512000
+SIZE = 1024 * 1024
 
 
 class Node:
@@ -73,7 +73,7 @@ class Node:
                 f"node{self.node_id}",
             )
             os.makedirs(self.file_directory, exist_ok=True)
-            print(f"Registered with tracker, node ID: {self.node_id}")
+            print(f"\033[1;31mRegistered with tracker, node ID: {self.node_id}\033[0m")
         else:
             print("Failed to register with tracker:", response["message"])
 
@@ -87,6 +87,7 @@ class Node:
             while self.running:
                 try:
                     conn, addr = s.accept()
+                    print("")
                     print(f"\033[1;36m[{addr}] connected\033[0m")
                     threading.Thread(
                         target=self.handle_node_request, args=(conn,)
@@ -118,6 +119,7 @@ class Node:
         except Exception as e:
             print(f"Error handling request: {e}")
         finally:
+            self.display_interface()
             client_socket.close()
 
     def upload_file(self, file_path, file_name):
@@ -177,12 +179,12 @@ class Node:
 
     def divide_file(self, file_path):
         # Divide the file into pieces of size SIZE
-        pieces = []
+        file_size = os.path.getsize(file_path)
+        num_pieces = (file_size + SIZE - 1) // SIZE
+        pieces = [None] * num_pieces
         with open(file_path, "rb") as f:
-            chunk_number = 0
-            while chunk := f.read(SIZE):
-                pieces.append(chunk)
-                chunk_number += 1
+            for i in range(num_pieces):
+                pieces[i] = f.read(SIZE)
         return pieces
 
     def get_active_nodes(self):
@@ -355,6 +357,15 @@ class Node:
         }
         self.send_request(data)
 
+    def display_interface(self):
+        print("\033[1;34m----------------------------\033[0m")
+        print("\033[1;34m|   Choose an option       |\033[0m")
+        print("\033[1;34m|  1. Upload file          |\033[0m")
+        print("\033[1;34m|  2. Download file        |\033[0m")
+        print("\033[1;34m|  3. Exit                 |\033[0m")
+        print("\033[1;34m----------------------------\033[0m")
+        print("\033[1;33mEnter option: \033[0m")
+
     def run(self):
         # Run the node and handle user input
         self.register_with_tracker()
@@ -362,13 +373,8 @@ class Node:
         time.sleep(1)
         try:
             while True:
-                print("\033[1;34m----------------------------\033[0m")
-                print("\033[1;34m|   Choose an option       |\033[0m")
-                print("\033[1;34m|  1. Upload file          |\033[0m")
-                print("\033[1;34m|  2. Download file        |\033[0m")
-                print("\033[1;34m|  3. Exit                 |\033[0m")
-                print("\033[1;34m----------------------------\033[0m")
-                choice = input("\033[1;33mEnter option: \033[0m")
+                self.display_interface()
+                choice = input()
                 if choice == "1":
                     file_path = input(
                         "\033[1;33mEnter the path of the file to upload: \033[0m"

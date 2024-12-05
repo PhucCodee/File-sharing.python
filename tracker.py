@@ -5,7 +5,7 @@ import json
 import time
 
 FORMAT = "utf-8"
-SIZE = 512000
+SIZE = 1024 * 1024
 NODES_FILE = "nodes.json"
 FILES_FILE = "files.json"
 
