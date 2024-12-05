@@ -7,7 +7,7 @@ import time
 from function import generate_file_hash, create_magnet_link
 
 FORMAT = "utf-8"
-SIZE = 524288
+SIZE = 512000
 
 
 class Node:
@@ -16,23 +16,24 @@ class Node:
         self.tracker_port = tracker_port
         self.ip_address = self.get_ip_address()
         self.port = self.get_port()
-        self.node_id = None  # Node ID will be assigned by the tracker
-        self.file_directory = None  # File directory will be created during registration
+        self.node_id = None
+        self.file_directory = None
         self.running = True
 
     def get_ip_address(self):
+        # Get the IP address of the current machine
         hostname = socket.gethostname()
         return socket.gethostbyname(hostname)
 
     def get_port(self):
-        # Create a socket and bind it to an available port
+        # Get an available port on the current machine
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.ip_address, 0))
             port = s.getsockname()[1]
         return port
 
     def send_request(self, data):
-        """Send a JSON request to the tracker and return the response."""
+        # Send a JSON request to the tracker and return the response
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.tracker_host, self.tracker_port))
@@ -44,7 +45,7 @@ class Node:
             return {"status": "error", "message": str(e)}
 
     def send_node_request(self, data):
-        """Send a JSON request to another node and return the response."""
+        # Send a JSON request to another node and return the response
         source_node_ip_address = data["source_node_ip_address"]
         source_node_port = data["source_node_port"]
         try:
@@ -58,6 +59,7 @@ class Node:
             return {"status": "error", "message": str(e)}
 
     def register_with_tracker(self):
+        # Register the node with the tracker
         data = {
             "command": "register",
             "ip_address": self.ip_address,
@@ -66,29 +68,26 @@ class Node:
         response = self.send_request(data)
         if response["status"] == "registered":
             self.node_id = response["node_id"]
-
-            # Create a unique directory for the node
             self.file_directory = os.path.join(
                 os.path.dirname(__file__),
                 f"node{self.node_id}",
             )
             os.makedirs(self.file_directory, exist_ok=True)
-
             print(f"Registered with tracker, node ID: {self.node_id}")
         else:
             print("Failed to register with tracker:", response["message"])
 
     def node_start(self):
+        # Start the node server to listen for incoming connections
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.ip_address, self.port))
             s.listen()
-            print(f"Node listening on {self.ip_address}:{self.port}")
-            # Set a timeout to periodically check the running flag
+            print(f"\033[1;32mNode listening on {self.ip_address}:{self.port}]\033[0m")
             s.settimeout(1)
             while self.running:
                 try:
                     conn, addr = s.accept()
-                    print(f"[{addr}] connected")
+                    print(f"\033[1;36m[{addr}] connected\033[0m")
                     threading.Thread(
                         target=self.handle_node_request, args=(conn,)
                     ).start()
@@ -98,7 +97,7 @@ class Node:
                     print(f"Error accepting connection: {e}")
 
     def handle_node_request(self, client_socket):
-        """Handle incoming requests from other nodes."""
+        # Handle incoming requests from other nodes
         try:
             data = client_socket.recv(SIZE).decode(FORMAT)
             if not data:
@@ -107,26 +106,28 @@ class Node:
 
             request = json.loads(data)
             command = request.get("command")
-            print(f"Received command: {command}")
+            print(f"\033[1;33mReceived command: {command}\033[0m")
 
             if command == "upload_piece":
                 self.receive_piece_upload(request, client_socket)
             elif command == "download_piece":
                 self.send_piece(request, client_socket)
             else:
-                response = {"error": "Unknown command"}
+                response = {"status": "error", "message": "Unknown command"}
                 client_socket.send(json.dumps(response).encode(FORMAT))
         except Exception as e:
             print(f"Error handling request: {e}")
         finally:
             client_socket.close()
 
-    # Uploading file
     def upload_file(self, file_path, file_name):
+        # Upload a file by dividing it into pieces and sending to active nodes
         if not os.path.exists(file_path):
             print("File does not exist!")
+            return
         if not os.path.isfile(file_path):
             print("File type is not valid!")
+            return
 
         print(f"Node: {self.node_id}, port: {self.port}")
         print(f"Uploading file: {file_path}")
@@ -145,7 +146,6 @@ class Node:
         for index, piece in enumerate(pieces):
             piece_distribution[index] = []
 
-            # Send to the first node
             target_node_id_1 = node_ids[index % len(node_ids)]
             target_node_1 = active_nodes[target_node_id_1]
             self.send_piece_upload(
@@ -153,7 +153,6 @@ class Node:
             )
             piece_distribution[index].append(target_node_id_1)
 
-            # Send to the second node
             target_node_id_2 = node_ids[(index + 1) % len(node_ids)]
             target_node_2 = active_nodes[target_node_id_2]
             self.send_piece_upload(
@@ -177,16 +176,17 @@ class Node:
             print(f"Failed to upload file {file_name}: {response['message']}")
 
     def divide_file(self, file_path):
+        # Divide the file into pieces of size SIZE
         pieces = []
         with open(file_path, "rb") as f:
             chunk_number = 0
             while chunk := f.read(SIZE):
-                pieces.append((chunk))
+                pieces.append(chunk)
                 chunk_number += 1
         return pieces
 
     def get_active_nodes(self):
-        """Request the list of active nodes from the tracker."""
+        # Request the list of active nodes from the tracker
         data = {"command": "get_nodes"}
         response = self.send_request(data)
         if response["status"] == "success":
@@ -198,20 +198,19 @@ class Node:
     def send_piece_upload(
         self, target_node_id, target_node, file_hash, piece_index, piece
     ):
-        """Send a file piece to another node."""
+        # Send a file piece to another node
         data = {
             "command": "upload_piece",
             "node_id": target_node_id,
             "file_hash": file_hash,
             "piece_index": piece_index,
-            "piece_data": piece.hex(),  # Convert binary data to hex string
+            "piece_data": piece.hex(),
         }
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((target_node["ip_address"], target_node["port"]))
                 s.sendall(json.dumps(data).encode(FORMAT))
 
-                # Receive data in chunks until the complete response is received
                 response = b""
                 while True:
                     chunk = s.recv(SIZE)
@@ -230,19 +229,15 @@ class Node:
             print(f"Error sending piece {piece_index} to node {target_node_id}: {e}")
 
     def receive_piece_upload(self, request, client_socket):
-        """Receive a file piece from another node and save it."""
+        # Receive a file piece from another node and save it
         node_id = request["node_id"]
         file_hash = request["file_hash"]
         piece_index = request["piece_index"]
-        piece_data = bytes.fromhex(
-            request["piece_data"]
-        )  # Convert hex string back to binary
+        piece_data = bytes.fromhex(request["piece_data"])
 
-        # Create the directory structure: node_id/file_hash
         pieces_directory = os.path.join(self.file_directory, file_hash)
         os.makedirs(pieces_directory, exist_ok=True)
 
-        # Save the piece to the appropriate file
         piece_path = os.path.join(pieces_directory, f"piece_{piece_index}")
         with open(piece_path, "wb") as piece_file:
             piece_file.write(piece_data)
@@ -253,8 +248,8 @@ class Node:
         response = {"status": "success"}
         client_socket.send(json.dumps(response).encode(FORMAT))
 
-    # Downloading file
     def download_file(self, file_name):
+        # Request to download a file
         data = {
             "command": "download",
             "file_name": file_name,
@@ -278,23 +273,24 @@ class Node:
     def download_pieces(
         self, file_hash, total_pieces, piece_distribution, save_location, active_nodes
     ):
-        pieces = [None] * total_pieces  # Initialize a list to store the pieces
+        # Download all pieces of a file from active nodes
+        pieces = [None] * total_pieces
         for i in range(total_pieces):
             piece_data = None
             for node_id in piece_distribution[str(i)]:
-                node_info = active_nodes[node_id]
-                piece_data = self.request_piece(
-                    node_info["ip_address"], node_info["port"], file_hash, i
-                )
-                if piece_data:
-                    break
+                if node_id in active_nodes:
+                    node_info = active_nodes[node_id]
+                    piece_data = self.request_piece(
+                        node_info["ip_address"], node_info["port"], file_hash, i
+                    )
+                    if piece_data:
+                        break
             if piece_data:
                 pieces[i] = piece_data
             else:
                 print(f"Piece {i} not found or failed to download.")
                 return
 
-        # Write all pieces to the output file
         with open(save_location, "wb") as output_file:
             for piece in pieces:
                 output_file.write(piece)
@@ -302,7 +298,7 @@ class Node:
         print(f"File downloaded successfully to {save_location}")
 
     def request_piece(self, target_ip, target_port, file_hash, piece_index):
-        """Request a file piece from another node."""
+        # Request a specific piece of a file from another node
         data = {
             "command": "download_piece",
             "file_hash": file_hash,
@@ -313,7 +309,6 @@ class Node:
                 s.connect((target_ip, target_port))
                 s.sendall(json.dumps(data).encode(FORMAT))
 
-                # Receive data in chunks until the complete response is received
                 response = b""
                 while True:
                     chunk = s.recv(SIZE)
@@ -323,9 +318,7 @@ class Node:
 
                 response_data = json.loads(response.decode(FORMAT))
                 if response_data["status"] == "success":
-                    piece_data = bytes.fromhex(
-                        response_data["piece_data"]
-                    )  # Convert hex string back to binary
+                    piece_data = bytes.fromhex(response_data["piece_data"])
                     return piece_data
                 else:
                     print(f"Error: {response_data['message']}")
@@ -337,7 +330,7 @@ class Node:
             return None
 
     def send_piece(self, request, client_socket):
-        """Send a file piece to another node."""
+        # Send a specific piece of a file to another node
         file_hash = request["file_hash"]
         piece_index = request["piece_index"]
         piece_path = os.path.join(
@@ -348,13 +341,14 @@ class Node:
                 piece_data = piece_file.read()
             response = {
                 "status": "success",
-                "piece_data": piece_data.hex(),  # Convert binary data to hex string
+                "piece_data": piece_data.hex(),
             }
         else:
             response = {"status": "error", "message": "Piece not found"}
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def disconnect(self):
+        # Disconnect the node from the tracker
         data = {
             "command": "disconnect",
             "node_id": self.node_id,
@@ -362,6 +356,7 @@ class Node:
         self.send_request(data)
 
     def run(self):
+        # Run the node and handle user input
         self.register_with_tracker()
         threading.Thread(target=self.node_start).start()
         time.sleep(1)
@@ -415,6 +410,5 @@ class Node:
 
 
 if __name__ == "__main__":
-    # Example usage
     node = Node("192.168.2.5", 4000)
     node.run()

@@ -5,7 +5,7 @@ import json
 import time
 
 FORMAT = "utf-8"
-SIZE = 524288
+SIZE = 512000
 NODES_FILE = "nodes.json"
 FILES_FILE = "files.json"
 
@@ -14,16 +14,16 @@ class Tracker:
     def __init__(self, host, port):
         self.host = host
         self.port = port
-        self.nodes = {}  # Dictionary to store node information
-        self.node_counter = 0  # Counter for auto-incrementing node IDs
+        self.nodes = {}
+        self.node_counter = 0
         self.running = True
 
     def start(self):
+        # Start the tracker server to listen for incoming connections
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.host, self.port))
             s.listen()
             print(f"\033[1;32mTracker listening on [{self.host}:{self.port}]\033[0m")
-            # Set a timeout to periodically check the running flag
             s.settimeout(1)
             while self.running:
                 try:
@@ -36,7 +36,7 @@ class Tracker:
                     print(f"Error accepting connection: {e}")
 
     def handle_request(self, client_socket):
-        """Handle incoming requests from nodes."""
+        # Handle incoming requests from nodes
         try:
             data = client_socket.recv(SIZE).decode(FORMAT)
             if not data:
@@ -65,16 +65,19 @@ class Tracker:
             print(f"Error handling request: {e}")
 
     def load_json(self, path):
+        # Load JSON data from a file
         if os.path.exists(path):
             with open(path, "r") as f:
                 return json.load(f)
         return {}
 
     def save_json(self, path, data):
+        # Save JSON data to a file
         with open(path, "w") as f:
             json.dump(data, f)
 
     def register_node(self, request, client_socket):
+        # Register a new node with the tracker
         self.node_counter += 1
         node_id = self.node_counter
 
@@ -101,6 +104,7 @@ class Tracker:
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def upload_node(self, request, client_socket):
+        # Handle file upload from a node
         node_id = request["node_id"]
         file_name = request["file_name"]
         file_hash = request["file_hash"]
@@ -139,6 +143,7 @@ class Tracker:
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def download_node(self, request, client_socket):
+        # Handle file download request from a node
         file_name = request["file_name"]
         file_registry_path = os.path.join("tracker", FILES_FILE)
 
@@ -147,17 +152,14 @@ class Tracker:
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
-        # Load the file registry
         file_registry = self.load_json(file_registry_path)
 
-        # Get the file hash from the file registry
         file_hash = file_registry.get(file_name)
         if not file_hash:
             response = {"status": "error", "message": "File hash not found"}
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
-        # Load the metadata file
         metadata_file_path = os.path.join("tracker", f"{file_hash}_metadata.json")
         metadata = self.load_json(metadata_file_path)
         if not metadata:
@@ -165,7 +167,6 @@ class Tracker:
             client_socket.send(json.dumps(response).encode(FORMAT))
             return
 
-        # Prepare the response
         response = {
             "status": "success",
             "file_hash": file_hash,
@@ -179,6 +180,7 @@ class Tracker:
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def disconnect_node(self, request, client_socket):
+        # Handle node disconnection
         node_id = request["node_id"]
         if node_id in self.nodes:
             del self.nodes[node_id]
@@ -196,7 +198,7 @@ class Tracker:
         client_socket.send(json.dumps(response).encode(FORMAT))
 
     def get_nodes(self, request, client_socket):
-        """Handle request for list of active nodes."""
+        # Provide the list of active nodes
         node_registry_path = os.path.join("tracker", NODES_FILE)
         node_registry = self.load_json(node_registry_path)
         response = {"status": "success", "nodes": node_registry}
@@ -206,7 +208,6 @@ class Tracker:
 if __name__ == "__main__":
     tracker = Tracker("192.168.2.5", 4000)
 
-    # Start the tracker in a separate thread
     print("\033[1;31mPRESS ENTER TO TERMINATE!\033[0m")
     threading.Thread(target=tracker.start).start()
     time.sleep(1)
